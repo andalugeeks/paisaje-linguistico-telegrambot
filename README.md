@@ -41,12 +41,58 @@ Al empezar una aportación, el bot pregunta con qué cuenta subirla:
 La elección se recuerda entre aportaciones; el comando `/cuenta` la olvida
 para poder elegir de nuevo.
 
-## Ejecución
+## Instalación y ejecución (con virtualenv)
+
+Usar un entorno virtual evita mezclar las dependencias del bot con las del
+sistema. Solo hay que crearlo la primera vez:
 
 ```bash
+# 1. Crear el entorno virtual (solo la primera vez)
+python3 -m venv .venv
+
+# 2. Activarlo (en cada terminal nueva)
+source .venv/bin/activate
+
+# 3. Instalar las dependencias (solo la primera vez o si cambia requirements.txt)
 pip install -r requirements.txt
+```
+
+Para arrancar el bot (con el entorno activado):
+
+```bash
+# Cargar las variables del .env en la terminal y ejecutar
+set -a; source .env; set +a
 python bot.py
 ```
+
+Para pararlo, `Ctrl+C`. Para salir del entorno virtual, `deactivate`.
+
+> 💡 Si al abrir una terminal nueva `python bot.py` falla con
+> `ModuleNotFoundError`, casi seguro que falta el paso 2 (`source .venv/bin/activate`).
+
+## Ejecución con Docker (recomendado para dejarlo 24/7)
+
+Con Docker no hace falta virtualenv ni cargar el `.env` a mano: `docker compose`
+lee el `.env` automáticamente (`env_file`) y reinicia el bot solo si se cae o
+si se reinicia la máquina (`restart: unless-stopped`).
+
+```bash
+# Arrancar (construye la imagen la primera vez)
+docker compose up -d
+
+# Ver los logs en directo (salir con Ctrl+C, el bot sigue corriendo)
+docker compose logs -f
+
+# Parar
+docker compose down
+
+# Tras cambiar el código, reconstruir y relanzar
+docker compose up -d --build
+```
+
+⚠️ Solo puede haber **una** instancia del bot a la vez (Telegram rechaza dos
+conexiones con el mismo token): si lo arrancas con Docker, no lo tengas
+corriendo también en la terminal.
 
 ## Estructura
 

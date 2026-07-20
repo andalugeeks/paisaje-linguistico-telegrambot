@@ -1,0 +1,6 @@
+services:
+  bot:
+    build: .
+    container_name: paisajebot
+    env_file: .env          # TELEGRAM_TOKEN, USHAHIDI_EMAIL, USHAHIDI_PASSWORD
+    restart: unless-stopped # se relanza solo si se cae o al reiniciar la máquina

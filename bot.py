@@ -25,6 +25,8 @@ import config
 from ushahidi import UshahidiClient, UshahidiError, register_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+# httpx loguea cada petición con la URL completa, que incluye el token del bot
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("paisajebot")
 
 # Estados de la conversación

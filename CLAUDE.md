@@ -105,7 +105,9 @@ Compila; NO se ha probado aún contra Telegram ni Ushahidi reales.
   (idea de diseño comentada, no implementada).
 - Geocodificación de direcciones escritas (Nominatim) como cuarta vía de
   localización.
-- Despliegue 24/7 (VPS / Railway / Fly.io) con systemd o Docker.
+- Despliegue 24/7: Docker Compose YA LISTO (Dockerfile + docker-compose.yml,
+  `env_file: .env`, `restart: unless-stopped`); falta solo elegir dónde
+  hospedarlo (VPS / Railway / Fly.io).
 
 ## Cómo ejecutar
 
