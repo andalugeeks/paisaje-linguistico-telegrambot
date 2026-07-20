@@ -10,9 +10,11 @@ metadatos, y crea el post en Ushahidi vía API.
 
 ## Flujo funcional (ya implementado)
 
-1. **Grupo**: `MessageHandler(filters.PHOTO & GROUPS)` detecta la foto, guarda
-   `file_id` + autor en `bot_data["pending"][token]` y responde con un botón
-   deep-link `t.me/<bot>?start=<token>`.
+1. **Grupo**: `MessageHandler((filters.PHOTO | filters.Document.IMAGE) & GROUPS)`
+   detecta la imagen (foto comprimida o enviada como archivo: copiar-pegar de
+   escritorio y "sin compresión" llegan como document), guarda `file_id` +
+   autor + filename/mime en `bot_data["pending"][token]` y responde con un
+   botón deep-link `t.me/<bot>?start=<token>`.
 2. **Privado** (ConversationHandler, estados en este orden):
    - `CONFIRM_PHOTO`: muestra la foto, confirma que es la correcta.
    - `AUTH_CHOICE` / `AUTH_EMAIL` / `AUTH_PASSWORD`: elección de cuenta de
