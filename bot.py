@@ -341,8 +341,11 @@ async def transcription(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TRANSCRIPTION
     context.user_data["draft"]["title"] = text
     await update.message.reply_text(
-        "📝 *Descripción*: añade cualquier otro detalle sobre la foto o su "
-        "contenido (contexto, dónde estaba, curiosidades...).",
+        "📝 *Descripción*: ¿qué hace andaluz a este letrero? Describe el "
+        "fenómeno lingüístico que reconoces en el texto.\n\n"
+        "Por ejemplo: pérdida de la «d» («asalvajá», «pescaíto»), seseo o "
+        "ceceo escrito («sielo», «zeñora»), aspiración o pérdida de la «s» "
+        "(«ehtamo», «vamo»), vocabulario propio andaluz...",
         parse_mode="Markdown",
     )
     return DESCRIPTION
