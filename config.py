@@ -4,12 +4,22 @@ import os
 # --- Telegram ---
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]  # de @BotFather
 
-# Opcional: en grupos con topics (foros), ids de los topics donde el bot
-# atiende fotos, separados por comas (ej. "123" o "123,456"). Vacío = todos.
-# El id de un topic sale en el log del bot (thread=...) al escribir en él.
-TELEGRAM_TOPIC_IDS = {
-    int(t) for t in os.environ.get("TELEGRAM_TOPIC_IDS", "").replace(" ", "").split(",") if t
-}
+# Opcional: en grupos con topics (foros), dónde atiende fotos el bot.
+# Formatos, separados por comas:
+#   "123"                  -> topic 123, en cualquier grupo con topics
+#   "-100123456789:123"    -> topic 123, solo en ese grupo (id de chat:topic)
+# Vacío = atiende en todos. Los grupos SIN topics no se ven afectados.
+# El id del chat y del topic salen en el log del bot (chat=..., thread=...).
+TELEGRAM_TOPIC_IDS = set()    # ids de topic sueltos
+TELEGRAM_TOPIC_PAIRS = set()  # pares (id de chat, id de topic)
+for _t in os.environ.get("TELEGRAM_TOPIC_IDS", "").replace(" ", "").split(","):
+    if not _t:
+        continue
+    if ":" in _t:
+        _chat, _topic = _t.split(":", 1)
+        TELEGRAM_TOPIC_PAIRS.add((int(_chat), int(_topic)))
+    else:
+        TELEGRAM_TOPIC_IDS.add(int(_t))
 
 # --- Ushahidi ---
 USHAHIDI_BASE = "https://andaluh.api.ushahidi.io"

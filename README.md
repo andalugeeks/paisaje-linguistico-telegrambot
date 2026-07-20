@@ -23,9 +23,11 @@ export USHAHIDI_PASSWORD="********"
 ```
 
 Opcional: en grupos con topics (foros), `TELEGRAM_TOPIC_IDS` limita en qué
-topics atiende el bot (ids separados por comas; el id de cada topic aparece en
-el log del bot como `thread=...` al escribir en él). Sin definir, atiende en
-todos los topics y grupos.
+topics atiende el bot. Acepta ids sueltos (`123`, vale para cualquier foro) y
+pares `chat:topic` (`-100123456789:123`, solo ese grupo), separados por comas.
+Los grupos **sin** topics no se ven afectados: ahí el bot atiende siempre.
+Los ids aparecen en el log del bot (`chat=...`, `thread=...`) al escribir en
+el topic. Sin definir la variable, el bot atiende en todos los sitios.
 
 `USHAHIDI_EMAIL`/`USHAHIDI_PASSWORD` son la **cuenta por defecto** del bot en
 andaluh.ushahidi.io: una cuenta normal creada solo para esto (p. ej. "Telegram

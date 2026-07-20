@@ -58,10 +58,12 @@ def _extract_image(msg) -> dict | None:
 # --------------------------------------------------------------------------
 async def group_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    # En grupos con topics (foros), atender solo los topics configurados
-    if config.TELEGRAM_TOPIC_IDS and msg.chat.is_forum \
-            and msg.message_thread_id not in config.TELEGRAM_TOPIC_IDS:
-        return
+    # En grupos con topics (foros), atender solo los topics configurados;
+    # los grupos sin topics no se filtran nunca
+    if (config.TELEGRAM_TOPIC_IDS or config.TELEGRAM_TOPIC_PAIRS) and msg.chat.is_forum:
+        if (msg.message_thread_id not in config.TELEGRAM_TOPIC_IDS
+                and (msg.chat_id, msg.message_thread_id) not in config.TELEGRAM_TOPIC_PAIRS):
+            return
     image = _extract_image(msg)
     if not image:
         return
