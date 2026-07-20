@@ -79,12 +79,12 @@ metadatos, y crea el post en Ushahidi vía API.
 Compila; NO se ha probado aún contra Telegram ni Ushahidi reales.
 
 **Pendiente inmediato (primera sesión de pruebas)**:
-1. Probar el flujo end-to-end. Los dos puntos con riesgo de necesitar ajuste
-   son el formato del `value` en `post_content` para el campo **media**
-   (¿`{"value": <media_id>}` o lista?) y para los **checkbox**
-   (¿`{"value": ["Rótulo"]}` o `{"value": {"value": [...]}}`). Si el POST
-   devuelve 422, el body detalla campo a campo el problema: ajustar
-   `_field_entry()` / `create_post()` en ushahidi.py según eso.
+1. ~~Formato del campo media~~ RESUELTO (jul-2026): la API exige que
+   `value.value` de un campo media sea una **lista** de ids
+   (`{"value": [<media_id>]}`) — validación en PostRequest.php del platform
+   (`media_field_must_be_array`). El primer 422 real solo se quejó del media,
+   así que el formato de los checkbox (lista de strings) pasa la validación.
+   Queda confirmar que el post entero entra y se ve bien en la web.
 2. Verificar que el aviso en grupo funciona (el bot necesita privacidad
    desactivada en BotFather: `/setprivacy` → Disable).
 3. Probar el flujo de cuentas: login con cuenta propia y, si se quiere ofrecer

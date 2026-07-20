@@ -83,7 +83,8 @@ class UshahidiClient:
         """Crea el post en la encuesta Corpus. Devuelve el JSON del post creado."""
         fields = [
             self._field_entry(config.FIELD_LOCATION, {"lat": lat, "lon": lon}),
-            self._field_entry(config.FIELD_PHOTO, media_id),
+            # La API valida que value.value de un campo media sea una lista de ids
+            self._field_entry(config.FIELD_PHOTO, [media_id]),
         ]
         # Los checkbox admiten varias opciones; Ushahidi espera lista de strings
         if letrero:
