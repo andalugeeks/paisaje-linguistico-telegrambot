@@ -15,6 +15,16 @@ metadatos, y crea el post en Ushahidi vía API.
    deep-link `t.me/<bot>?start=<token>`.
 2. **Privado** (ConversationHandler, estados en este orden):
    - `CONFIRM_PHOTO`: muestra la foto, confirma que es la correcta.
+   - `AUTH_CHOICE` / `AUTH_EMAIL` / `AUTH_PASSWORD`: elección de cuenta de
+     Ushahidi — (a) cuenta por defecto del bot (env vars, identifica subidas
+     vía Telegram), (b) cuenta propia (login validado con `check_login()`),
+     (c) crear cuenta (`register_user()`, POST /api/v3/register). El mensaje
+     con la contraseña se borra del chat; los clientes por usuario viven en
+     el dict en memoria `user_clients` (se pierden al reiniciar → se
+     repregunta). La elección se recuerda entre aportaciones; `/cuenta` la
+     olvida. ⚠️ El registro está DESACTIVADO en el despliegue
+     (`disable_registration: enabled` en /api/v3/config/features): la opción
+     (c) fallará hasta activarlo en el panel de Ushahidi.
    - `LOCATION`: acepta ubicación compartida de Telegram, enlaces de Google
      Maps (resuelve cortos maps.app.goo.gl siguiendo la redirección) o
      coordenadas escritas "lat, lon".
@@ -36,8 +46,11 @@ metadatos, y crea el post en Ushahidi vía API.
 ## Arquitectura
 
 - `bot.py` — handlers de Telegram y máquina de estados. python-telegram-bot v21+ (async).
-- `ushahidi.py` — `UshahidiClient`: OAuth2 password grant con caché de token,
-  `upload_media()` (POST /api/v3/media, multipart), `create_post()` (POST /api/v5/posts).
+- `ushahidi.py` — `UshahidiClient(email=None, password=None)`: OAuth2 password
+  grant con caché de token (sin args usa la cuenta por defecto de config),
+  `check_login()`, `upload_media()` (POST /api/v3/media, multipart),
+  `create_post()` (POST /api/v5/posts). Función suelta `register_user()`
+  (POST /api/v3/register, sin auth).
 - `config.py` — token, credenciales (por env vars) y **estructura de la
   encuesta "Corpus"** con los ids/keys reales obtenidos de
   `GET https://andaluh.api.ushahidi.io/api/v5/surveys`.
@@ -74,10 +87,17 @@ Compila; NO se ha probado aún contra Telegram ni Ushahidi reales.
    `_field_entry()` / `create_post()` en ushahidi.py según eso.
 2. Verificar que el aviso en grupo funciona (el bot necesita privacidad
    desactivada en BotFather: `/setprivacy` → Disable).
+3. Probar el flujo de cuentas: login con cuenta propia y, si se quiere ofrecer
+   el alta desde el bot, activar el registro en los ajustes de Ushahidi
+   (ahora `disable_registration` está activo y /api/v3/register devuelve 500
+   con cuerpo vacío — sin activarlo no se puede validar el formato del body).
 
 **Backlog acordado con el usuario**:
 - Persistencia (PicklePersistence o SQLite) para no perder conversaciones a
   medias si el bot se reinicia; recordatorio a las 24h de borradores abandonados.
+  ⚠️ Al añadirla, NO persistir contraseñas ni el dict `user_clients` (contiene
+  credenciales y un httpx client no picklable): mejor guardar solo el email y
+  repedir la contraseña tras un reinicio, o pasar a tokens.
 - Álbumes: la foto tiene cardinality 1 en Ushahidi; si alguien manda un álbum,
   tratar cada foto como aportación separada (ahora cada foto del álbum genera
   su propio botón, lo cual ya funciona pero puede ser ruidoso: valorar agrupar).

@@ -6,7 +6,10 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]  # de @BotFather
 
 # --- Ushahidi ---
 USHAHIDI_BASE = "https://andaluh.api.ushahidi.io"
-USHAHIDI_EMAIL = os.environ["USHAHIDI_EMAIL"]        # usuario del despliegue
+# Cuenta POR DEFECTO del bot: identifica las subidas hechas desde Telegram
+# cuando la persona no usa cuenta propia. Es una cuenta normal del despliegue,
+# creada solo para esto (p. ej. "Telegram Paisaje Andaluz").
+USHAHIDI_EMAIL = os.environ["USHAHIDI_EMAIL"]
 USHAHIDI_PASSWORD = os.environ["USHAHIDI_PASSWORD"]
 # Credenciales de cliente OAuth2 públicas estándar de la plataforma Ushahidi
 USHAHIDI_CLIENT_ID = os.environ.get("USHAHIDI_CLIENT_ID", "ushahidiui")

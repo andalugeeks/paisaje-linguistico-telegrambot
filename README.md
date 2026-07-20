@@ -14,9 +14,32 @@ por privado para completar y subir su aportación a andaluh.ushahidi.io.
 
 ```bash
 export TELEGRAM_TOKEN="123456:ABC..."
-export USHAHIDI_EMAIL="usuario@ejemplo.com"      # cuenta en andaluh.ushahidi.io
+export USHAHIDI_EMAIL="cuenta-telegram@ejemplo.com"  # cuenta POR DEFECTO del bot
 export USHAHIDI_PASSWORD="********"
 ```
+
+`USHAHIDI_EMAIL`/`USHAHIDI_PASSWORD` son la **cuenta por defecto** del bot en
+andaluh.ushahidi.io: una cuenta normal creada solo para esto (p. ej. "Telegram
+Paisaje Andaluz"). Todas las aportaciones de quien no use cuenta propia se
+suben con ella, lo que permite identificar en Ushahidi qué llegó desde Telegram.
+
+## Cuentas de Ushahidi
+
+Al empezar una aportación, el bot pregunta con qué cuenta subirla:
+
+1. **Sin cuenta propia** (opción por defecto): usa la cuenta colectiva del bot.
+2. **Mi cuenta**: pide email y contraseña de andaluh.ushahidi.io, comprueba que
+   funcionan y sube la aportación a nombre de esa persona. El mensaje con la
+   contraseña se borra del chat, y las credenciales se guardan solo en memoria
+   (al reiniciar el bot se vuelve a preguntar).
+3. **Crear cuenta nueva**: registra la cuenta vía `POST /api/v3/register`.
+   ⚠️ Solo funciona si el registro está habilitado en los ajustes del
+   despliegue; a día de hoy `disable_registration` está **activado** en
+   andaluh.ushahidi.io, así que esta opción fallará (el bot lo explica y
+   ofrece las otras) hasta que se active desde el panel de Ushahidi.
+
+La elección se recuerda entre aportaciones; el comando `/cuenta` la olvida
+para poder elegir de nuevo.
 
 ## Ejecución
 

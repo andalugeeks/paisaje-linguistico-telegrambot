@@ -13,7 +13,11 @@ class UshahidiError(Exception):
 
 
 class UshahidiClient:
-    def __init__(self):
+    def __init__(self, email: str | None = None, password: str | None = None):
+        """Sin argumentos usa la cuenta por defecto (variables de entorno);
+        con email/password sube las aportaciones como ese usuario."""
+        self.email = email or config.USHAHIDI_EMAIL
+        self.password = password or config.USHAHIDI_PASSWORD
         self._token: str | None = None
         self._token_expires: float = 0.0
         self._http = httpx.AsyncClient(base_url=config.USHAHIDI_BASE, timeout=30)
@@ -26,8 +30,8 @@ class UshahidiClient:
             "/oauth/token",
             json={
                 "grant_type": "password",
-                "username": config.USHAHIDI_EMAIL,
-                "password": config.USHAHIDI_PASSWORD,
+                "username": self.email,
+                "password": self.password,
                 "client_id": config.USHAHIDI_CLIENT_ID,
                 "client_secret": config.USHAHIDI_CLIENT_SECRET,
                 "scope": "posts media forms api",
@@ -39,6 +43,10 @@ class UshahidiClient:
         self._token = data["access_token"]
         self._token_expires = time.time() + data.get("expires_in", 3600)
         return self._token
+
+    async def check_login(self) -> None:
+        """Valida las credenciales pidiendo un token; lanza UshahidiError si fallan."""
+        await self._get_token()
 
     async def _headers(self) -> dict:
         return {"Authorization": f"Bearer {await self._get_token()}"}
@@ -110,3 +118,23 @@ class UshahidiClient:
 
     async def close(self):
         await self._http.aclose()
+
+
+async def register_user(email: str, password: str, realname: str = "") -> None:
+    """Crea una cuenta nueva en el despliegue (POST /api/v3/register).
+
+    ⚠️ Requiere que el registro esté habilitado en los ajustes de Ushahidi:
+    a día de hoy andaluh.ushahidi.io tiene 'disable_registration' activado,
+    así que este endpoint devuelve 500 hasta que se active desde el panel.
+    """
+    async with httpx.AsyncClient(base_url=config.USHAHIDI_BASE, timeout=30) as http:
+        resp = await http.post(
+            "/api/v3/register",
+            json={
+                "email": email,
+                "password": password,
+                "realname": realname or email.split("@")[0],
+            },
+        )
+    if resp.status_code not in (200, 201):
+        raise UshahidiError(f"Error creando la cuenta ({resp.status_code}): {resp.text}")

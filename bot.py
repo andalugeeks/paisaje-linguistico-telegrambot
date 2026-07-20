@@ -2,8 +2,9 @@
 
 Flujo:
 1. Detecta fotos en el grupo y responde con un botón de enlace profundo.
-2. En privado guía al usuario: localización → transcripción → descripción
-   → tipo de letrero → tipo de discurso → resumen y envío.
+2. En privado guía al usuario: cuenta de Ushahidi (propia, nueva o la del
+   bot) → localización → transcripción → descripción → tipo de letrero
+   → tipo de discurso → resumen y envío.
 3. Sube la aportación a Ushahidi y confirma en el grupo.
 """
 import re
@@ -21,15 +22,20 @@ from telegram.ext import (
 )
 
 import config
-from ushahidi import UshahidiClient, UshahidiError
+from ushahidi import UshahidiClient, UshahidiError, register_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("paisajebot")
 
 # Estados de la conversación
-CONFIRM_PHOTO, LOCATION, TRANSCRIPTION, DESCRIPTION, LETRERO, DISCURSO, REVIEW = range(7)
+(CONFIRM_PHOTO, AUTH_CHOICE, AUTH_EMAIL, AUTH_PASSWORD,
+ LOCATION, TRANSCRIPTION, DESCRIPTION, LETRERO, DISCURSO, REVIEW) = range(10)
 
+# Cuenta por defecto (variables de entorno): identifica las subidas desde Telegram
 ushahidi = UshahidiClient()
+# Clientes con cuenta propia, por id de usuario de Telegram (solo en memoria:
+# se pierden al reiniciar el bot y se vuelve a preguntar)
+user_clients: dict[int, UshahidiClient] = {}
 
 # --------------------------------------------------------------------------
 # 1) Detección de fotos en el grupo
@@ -104,19 +110,8 @@ async def private_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "letrero": set(),
         "discurso": set(),
     }
-    kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("📍 Compartir mi ubicación", request_location=True)]],
-        resize_keyboard=True, one_time_keyboard=True,
-    )
-    await msg.reply_text(
-        "📸 ¡Foto recibida! Vamos a subirla al mapa.\n\n"
-        "📍 *¿Dónde está el letrero?*\n\n"
-        "• Pulsa el botón para compartir tu ubicación, o\n"
-        "• pega un enlace de Google Maps, o\n"
-        "• escribe las coordenadas (ej. `37.1603, -4.2187`)",
-        parse_mode="Markdown", reply_markup=kb,
-    )
-    return LOCATION
+    await msg.reply_text("📸 ¡Foto recibida! Vamos a subirla al mapa.")
+    return await _maybe_ask_account(update, context)
 
 
 async def confirm_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,11 +121,32 @@ async def confirm_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("Sin problema, aportación cancelada. 👋")
         context.user_data.clear()
         return ConversationHandler.END
+    return await _maybe_ask_account(update, context)
+
+
+# --------------------------------------------------------------------------
+# 2b) Elección de cuenta de Ushahidi
+# --------------------------------------------------------------------------
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _account_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 Seguir sin cuenta propia (lo más fácil)",
+                              callback_data="acc:default")],
+        [InlineKeyboardButton("🙋 Usar mi cuenta de Ushahidi",
+                              callback_data="acc:login")],
+        [InlineKeyboardButton("✨ Crear una cuenta nueva",
+                              callback_data="acc:signup")],
+    ])
+
+
+async def _goto_location(chat) -> int:
     kb = ReplyKeyboardMarkup(
         [[KeyboardButton("📍 Compartir mi ubicación", request_location=True)]],
         resize_keyboard=True, one_time_keyboard=True,
     )
-    await q.message.reply_text(
+    await chat.send_message(
         "📍 *¿Dónde está el letrero?*\n\n"
         "• Pulsa el botón para compartir tu ubicación, o\n"
         "• pega un enlace de Google Maps, o\n"
@@ -138,6 +154,135 @@ async def confirm_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown", reply_markup=kb,
     )
     return LOCATION
+
+
+async def _maybe_ask_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Pregunta con qué cuenta subir la aportación, o salta el paso si el
+    usuario ya eligió en una aportación anterior (mientras el bot siga vivo)."""
+    chat = update.effective_chat
+    account = context.user_data.get("account")
+    if account == "default":
+        return await _goto_location(chat)
+    if account and update.effective_user.id in user_clients:
+        await chat.send_message(
+            f"ℹ️ Subiré la aportación con tu cuenta {account} "
+            "(usa /cuenta si quieres cambiarla)."
+        )
+        return await _goto_location(chat)
+    await chat.send_message(
+        "👤 ¿Con qué cuenta de andaluh.ushahidi.io quieres subir tu aportación?\n\n"
+        "Si no tienes cuenta o te da igual, elige la primera opción: se subirá "
+        "con la cuenta colectiva del bot y saldrá en el mapa exactamente igual.",
+        reply_markup=_account_kb(),
+    )
+    return AUTH_CHOICE
+
+
+async def account_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    choice = q.data.split(":")[1]
+    if choice == "default":
+        context.user_data["account"] = "default"
+        user_clients.pop(update.effective_user.id, None)
+        await q.message.reply_text(
+            "👍 Perfecto, tu aportación se subirá con la cuenta colectiva del bot."
+        )
+        return await _goto_location(update.effective_chat)
+
+    context.user_data["auth_mode"] = choice  # "login" o "signup"
+    if choice == "signup":
+        await q.message.reply_text(
+            "✨ ¡Vamos a crearte una cuenta en andaluh.ushahidi.io!\n\n"
+            "📧 Escribe el *email* que quieres usar:",
+            parse_mode="Markdown",
+        )
+    else:
+        await q.message.reply_text(
+            "📧 Escribe el *email* de tu cuenta de andaluh.ushahidi.io:",
+            parse_mode="Markdown",
+        )
+    return AUTH_EMAIL
+
+
+async def auth_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    email = update.message.text.strip()
+    if not EMAIL_RE.match(email):
+        await update.message.reply_text(
+            "Mmm, eso no parece un email 😅. Escríbelo de nuevo (ej. `nombre@ejemplo.com`):",
+            parse_mode="Markdown",
+        )
+        return AUTH_EMAIL
+    context.user_data["auth_email"] = email
+    if context.user_data.get("auth_mode") == "signup":
+        texto = "🔑 Ahora elige una *contraseña* para tu cuenta nueva."
+    else:
+        texto = "🔑 Ahora escribe tu *contraseña*."
+    await update.message.reply_text(
+        texto + "\n\n🔒 Borraré tu mensaje en cuanto la lea, para que no quede "
+        "en el chat. Aun así, mejor no uses una contraseña que ya uses en "
+        "sitios importantes.",
+        parse_mode="Markdown",
+    )
+    return AUTH_PASSWORD
+
+
+async def auth_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    password = update.message.text
+    try:
+        await update.message.delete()
+    except Exception:
+        log.warning("No se pudo borrar el mensaje con la contraseña")
+
+    email = context.user_data["auth_email"]
+    mode = context.user_data.get("auth_mode", "login")
+    chat = update.effective_chat
+    status = await chat.send_message("⏳ Comprobando...")
+    try:
+        if mode == "signup":
+            await register_user(email, password,
+                                realname=update.effective_user.first_name)
+        client = UshahidiClient(email, password)
+        await client.check_login()
+    except UshahidiError as e:
+        log.warning("Fallo de autenticación en Ushahidi: %s", e)
+        if mode == "signup":
+            texto = (
+                "😔 No he podido crear la cuenta. Puede que el registro esté "
+                "desactivado en andaluh.ushahidi.io o que ese email ya exista.\n\n"
+                "¿Probamos otra opción?"
+            )
+        else:
+            texto = "😔 Ese email y contraseña no funcionan. ¿Probamos otra vez?"
+        await status.edit_text(texto)
+        await chat.send_message(
+            "👤 ¿Con qué cuenta quieres subir tu aportación?",
+            reply_markup=_account_kb(),
+        )
+        return AUTH_CHOICE
+
+    user_clients[update.effective_user.id] = client
+    context.user_data["account"] = email
+    if mode == "signup":
+        await status.edit_text(
+            f"✅ ¡Cuenta creada! Subirás tus aportaciones como {email} "
+            "(también te sirve para entrar en andaluh.ushahidi.io)."
+        )
+    else:
+        await status.edit_text(f"✅ ¡Dentro! Subirás tus aportaciones como {email}.")
+    return await _goto_location(chat)
+
+
+async def cuenta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /cuenta: olvida la cuenta elegida para volver a preguntar."""
+    user_clients.pop(update.effective_user.id, None)
+    context.user_data.pop("account", None)
+    context.user_data.pop("auth_mode", None)
+    context.user_data.pop("auth_email", None)
+    await update.message.reply_text(
+        "👤 Cuenta olvidada. En tu próxima aportación te volveré a preguntar "
+        "con qué cuenta quieres subirla."
+    )
 
 
 COORD_RE = re.compile(r"(-?\d{1,2}\.\d+)[,\s]+(-?\d{1,3}\.\d+)")
@@ -285,12 +430,14 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     d = context.user_data["draft"]
+    # Cuenta propia si el usuario inició sesión; si no, la colectiva del bot
+    client = user_clients.get(update.effective_user.id, ushahidi)
     await q.message.reply_text("⏳ Subiendo tu aportación al mapa...")
     try:
         tg_file = await context.bot.get_file(d["file_id"])
         image = bytes(await tg_file.download_as_bytearray())
-        media_id = await ushahidi.upload_media(image, caption=d["title"])
-        await ushahidi.create_post(
+        media_id = await client.upload_media(image, caption=d["title"])
+        await client.create_post(
             title=d["title"], description=d["description"],
             lat=d["lat"], lon=d["lon"], media_id=media_id,
             letrero=sorted(d["letrero"]), discurso=sorted(d["discurso"]),
@@ -344,6 +491,9 @@ def main():
         ],
         states={
             CONFIRM_PHOTO: [CallbackQueryHandler(confirm_photo, pattern="^photo:")],
+            AUTH_CHOICE: [CallbackQueryHandler(account_choice, pattern="^acc:")],
+            AUTH_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, auth_email)],
+            AUTH_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, auth_password)],
             LOCATION: [MessageHandler(
                 (filters.LOCATION | filters.TEXT) & ~filters.COMMAND, location)],
             TRANSCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, transcription)],
@@ -355,6 +505,7 @@ def main():
         fallbacks=[CommandHandler("cancelar", cancel)],
     )
     app.add_handler(conv)
+    app.add_handler(CommandHandler("cuenta", cuenta, filters.ChatType.PRIVATE))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.GROUPS, group_photo))
 
     log.info("Bot arrancado")
