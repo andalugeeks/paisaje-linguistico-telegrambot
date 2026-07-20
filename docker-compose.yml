@@ -1,6 +1,13 @@
+version: "3.3"          # requerida por docker-compose 1.x (el servidor); v2 la ignora
+
 services:
   bot:
     build: .
     container_name: paisajebot
     env_file: .env          # TELEGRAM_TOKEN, USHAHIDI_EMAIL, USHAHIDI_PASSWORD
     restart: unless-stopped # se relanza solo si se cae o al reiniciar la máquina
+    logging:                # rotación: que los logs no coman disco con los años
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
