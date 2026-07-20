@@ -4,6 +4,13 @@ import os
 # --- Telegram ---
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]  # de @BotFather
 
+# Opcional: en grupos con topics (foros), ids de los topics donde el bot
+# atiende fotos, separados por comas (ej. "123" o "123,456"). Vacío = todos.
+# El id de un topic sale en el log del bot (thread=...) al escribir en él.
+TELEGRAM_TOPIC_IDS = {
+    int(t) for t in os.environ.get("TELEGRAM_TOPIC_IDS", "").replace(" ", "").split(",") if t
+}
+
 # --- Ushahidi ---
 USHAHIDI_BASE = "https://andaluh.api.ushahidi.io"
 # Cuenta POR DEFECTO del bot: identifica las subidas hechas desde Telegram

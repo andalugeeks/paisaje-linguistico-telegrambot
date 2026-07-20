@@ -22,6 +22,11 @@ export USHAHIDI_EMAIL="cuenta-telegram@ejemplo.com"  # cuenta POR DEFECTO del bo
 export USHAHIDI_PASSWORD="********"
 ```
 
+Opcional: en grupos con topics (foros), `TELEGRAM_TOPIC_IDS` limita en qué
+topics atiende el bot (ids separados por comas; el id de cada topic aparece en
+el log del bot como `thread=...` al escribir en él). Sin definir, atiende en
+todos los topics y grupos.
+
 `USHAHIDI_EMAIL`/`USHAHIDI_PASSWORD` son la **cuenta por defecto** del bot en
 andaluh.ushahidi.io: una cuenta normal creada solo para esto (p. ej. "Telegram
 Paisaje Andaluz"). Todas las aportaciones de quien no use cuenta propia se
