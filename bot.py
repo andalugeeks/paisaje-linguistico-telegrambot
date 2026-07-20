@@ -447,13 +447,21 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lat=d["lat"], lon=d["lon"], media_id=media_id,
             letrero=sorted(d["letrero"]), discurso=sorted(d["discurso"]),
         )
-    except UshahidiError as e:
-        log.error("Fallo subiendo a Ushahidi: %s", e)
+    except Exception as e:
+        # UshahidiError o cualquier otro fallo (p. ej. descargando de Telegram):
+        # no perdemos el borrador, ofrecemos reintentar desde el mismo punto
+        log.error("Fallo subiendo a Ushahidi: %s", e, exc_info=True)
         await q.message.reply_text(
-            "😔 Ha fallado la subida a Ushahidi. Inténtalo de nuevo más tarde "
-            "o avisa a los administradores del grupo."
+            "😔 Ha fallado la subida (el servidor no respondió a tiempo o dio "
+            "un error). Tu aportación NO se ha perdido: dale a «Reintentar» "
+            "en un momento, o cancela y avisa a los administradores si sigue "
+            "fallando.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Reintentar", callback_data="rev:send"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="rev:cancel"),
+            ]]),
         )
-        return ConversationHandler.END
+        return REVIEW
 
     await q.message.reply_text(
         "✅ ¡Aportación enviada! Quedará visible en el mapa en cuanto el "

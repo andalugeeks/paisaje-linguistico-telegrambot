@@ -20,13 +20,28 @@ class UshahidiClient:
         self.password = password or config.USHAHIDI_PASSWORD
         self._token: str | None = None
         self._token_expires: float = 0.0
-        self._http = httpx.AsyncClient(base_url=config.USHAHIDI_BASE, timeout=30)
+        # El despliegue (capa gratuita) a veces tarda mucho en procesar la
+        # subida de fotos: damos hasta 120s a la respuesta antes de rendirnos
+        self._http = httpx.AsyncClient(
+            base_url=config.USHAHIDI_BASE,
+            timeout=httpx.Timeout(30, read=120),
+        )
+
+    async def _post(self, *args, **kwargs) -> httpx.Response:
+        """POST que convierte los errores de red (timeout, DNS, conexión...)
+        en UshahidiError para que el bot pueda avisar al usuario."""
+        try:
+            return await self._http.post(*args, **kwargs)
+        except httpx.HTTPError as e:
+            raise UshahidiError(
+                f"Sin respuesta del servidor ({type(e).__name__}): {e}"
+            ) from e
 
     # ------------------------------------------------------------------ auth
     async def _get_token(self) -> str:
         if self._token and time.time() < self._token_expires - 60:
             return self._token
-        resp = await self._http.post(
+        resp = await self._post(
             "/oauth/token",
             json={
                 "grant_type": "password",
@@ -55,7 +70,7 @@ class UshahidiClient:
     async def upload_media(self, image_bytes: bytes, filename: str = "foto.jpg",
                            caption: str = "") -> int:
         """Sube una imagen al endpoint de media (v3) y devuelve su id."""
-        resp = await self._http.post(
+        resp = await self._post(
             "/api/v3/media",
             headers=await self._headers(),
             files={"file": (filename, image_bytes, "image/jpeg")},
@@ -109,7 +124,7 @@ class UshahidiClient:
                 }
             ],
         }
-        resp = await self._http.post(
+        resp = await self._post(
             "/api/v5/posts", headers=await self._headers(), json=payload
         )
         if resp.status_code not in (200, 201):
@@ -128,14 +143,17 @@ async def register_user(email: str, password: str, realname: str = "") -> None:
     a día de hoy andaluh.ushahidi.io tiene 'disable_registration' activado,
     así que este endpoint devuelve 500 hasta que se active desde el panel.
     """
-    async with httpx.AsyncClient(base_url=config.USHAHIDI_BASE, timeout=30) as http:
-        resp = await http.post(
-            "/api/v3/register",
-            json={
-                "email": email,
-                "password": password,
-                "realname": realname or email.split("@")[0],
-            },
-        )
+    try:
+        async with httpx.AsyncClient(base_url=config.USHAHIDI_BASE, timeout=30) as http:
+            resp = await http.post(
+                "/api/v3/register",
+                json={
+                    "email": email,
+                    "password": password,
+                    "realname": realname or email.split("@")[0],
+                },
+            )
+    except httpx.HTTPError as e:
+        raise UshahidiError(f"Sin respuesta del servidor ({type(e).__name__}): {e}") from e
     if resp.status_code not in (200, 201):
         raise UshahidiError(f"Error creando la cuenta ({resp.status_code}): {resp.text}")
