@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import httpx
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
 )
 from telegram.ext import (
@@ -175,7 +175,8 @@ async def _goto_location(chat) -> int:
         "📍 *¿Dónde está el letrero?*\n\n"
         "• Pulsa el botón para compartir tu ubicación, o\n"
         "• pega un enlace de Google Maps, o\n"
-        "• escribe las coordenadas (ej. `37.1603, -4.2187`)",
+        "• escribe las coordenadas (ej. `37.1603, -4.2187`)\n\n"
+        "_Para dejarlo en cualquier momento, escribe_ /cancelar",
         parse_mode="Markdown", reply_markup=kb,
     )
     return LOCATION
@@ -309,6 +310,9 @@ async def cuenta(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "con qué cuenta quieres subirla."
     )
 
+
+# "cancelar" escrito tal cual (con o sin barra) cancela en cualquier paso
+CANCEL_RE = re.compile(r"^\s*/?cancelar\s*$", re.IGNORECASE)
 
 COORD_RE = re.compile(r"(-?\d{1,2}\.\d+)[,\s]+(-?\d{1,3}\.\d+)")
 GMAPS_RE = re.compile(r"[@!]3d(-?\d+\.\d+)!4d(-?\d+\.\d+)|@(-?\d+\.\d+),(-?\d+\.\d+)")
@@ -519,9 +523,22 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def post_init(app: Application):
+    """Registra el menú de comandos que Telegram muestra al pulsar '/'."""
+    await app.bot.set_my_commands([
+        BotCommand("cancelar", "Cancelar la aportación en curso"),
+        BotCommand("cuenta", "Cambiar la cuenta de Ushahidi"),
+    ])
+
+
 # --------------------------------------------------------------------------
 def main():
-    app = Application.builder().token(config.TELEGRAM_TOKEN).build()
+    app = (Application.builder().token(config.TELEGRAM_TOKEN)
+           .post_init(post_init).build())
+
+    # Escribir "cancelar" (sin barra) también cancela: va el primero en cada
+    # estado de texto para ganar al handler que consumiría el mensaje
+    cancel_word = MessageHandler(filters.Regex(CANCEL_RE), cancel)
 
     conv = ConversationHandler(
         entry_points=[
@@ -532,17 +549,21 @@ def main():
         states={
             CONFIRM_PHOTO: [CallbackQueryHandler(confirm_photo, pattern="^photo:")],
             AUTH_CHOICE: [CallbackQueryHandler(account_choice, pattern="^acc:")],
-            AUTH_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, auth_email)],
-            AUTH_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, auth_password)],
-            LOCATION: [MessageHandler(
+            AUTH_EMAIL: [cancel_word,
+                         MessageHandler(filters.TEXT & ~filters.COMMAND, auth_email)],
+            AUTH_PASSWORD: [cancel_word,
+                            MessageHandler(filters.TEXT & ~filters.COMMAND, auth_password)],
+            LOCATION: [cancel_word, MessageHandler(
                 (filters.LOCATION | filters.TEXT) & ~filters.COMMAND, location)],
-            TRANSCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, transcription)],
-            DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, description)],
+            TRANSCRIPTION: [cancel_word,
+                            MessageHandler(filters.TEXT & ~filters.COMMAND, transcription)],
+            DESCRIPTION: [cancel_word,
+                          MessageHandler(filters.TEXT & ~filters.COMMAND, description)],
             LETRERO: [CallbackQueryHandler(letrero, pattern="^let:")],
             DISCURSO: [CallbackQueryHandler(discurso, pattern="^dis:")],
             REVIEW: [CallbackQueryHandler(review, pattern="^rev:")],
         },
-        fallbacks=[CommandHandler("cancelar", cancel)],
+        fallbacks=[CommandHandler("cancelar", cancel), cancel_word],
     )
     app.add_handler(conv)
     app.add_handler(CommandHandler("cuenta", cuenta, filters.ChatType.PRIVATE))
