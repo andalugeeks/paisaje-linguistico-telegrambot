@@ -68,12 +68,12 @@ class UshahidiClient:
 
     # ----------------------------------------------------------------- media
     async def upload_media(self, image_bytes: bytes, filename: str = "foto.jpg",
-                           caption: str = "") -> int:
+                           mime: str = "image/jpeg", caption: str = "") -> int:
         """Sube una imagen al endpoint de media (v3) y devuelve su id."""
         resp = await self._post(
             "/api/v3/media",
             headers=await self._headers(),
-            files={"file": (filename, image_bytes, "image/jpeg")},
+            files={"file": (filename, image_bytes, mime)},
             data={"caption": caption},
         )
         if resp.status_code not in (200, 201):

@@ -39,14 +39,31 @@ ushahidi = UshahidiClient()
 # se pierden al reiniciar el bot y se vuelve a preguntar)
 user_clients: dict[int, UshahidiClient] = {}
 
+def _extract_image(msg) -> dict | None:
+    """Saca la imagen de un mensaje, venga como foto comprimida o como
+    archivo (copiar-pegar en escritorio o envío 'sin compresión')."""
+    if msg.photo:
+        return {"file_id": msg.photo[-1].file_id, "as_document": False,
+                "filename": "foto.jpg", "mime": "image/jpeg"}
+    doc = msg.document
+    if doc and (doc.mime_type or "").startswith("image/"):
+        return {"file_id": doc.file_id, "as_document": True,
+                "filename": doc.file_name or "imagen.png",
+                "mime": doc.mime_type}
+    return None
+
+
 # --------------------------------------------------------------------------
 # 1) Detección de fotos en el grupo
 # --------------------------------------------------------------------------
 async def group_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
+    image = _extract_image(msg)
+    if not image:
+        return
     token = uuid4().hex[:12]
     context.bot_data.setdefault("pending", {})[token] = {
-        "file_id": msg.photo[-1].file_id,
+        **image,
         "user_id": msg.from_user.id,
         "group_chat_id": msg.chat_id,
         "group_message_id": msg.message_id,
@@ -88,14 +105,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["draft"] = dict(pending, token=token,
                                       letrero=set(), discurso=set())
-    await update.message.reply_photo(
-        pending["file_id"],
-        caption="¿Es esta la foto que quieres subir al mapa?",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Sí, seguir", callback_data="photo:ok"),
-            InlineKeyboardButton("❌ Cancelar", callback_data="photo:no"),
-        ]]),
-    )
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Sí, seguir", callback_data="photo:ok"),
+        InlineKeyboardButton("❌ Cancelar", callback_data="photo:no"),
+    ]])
+    caption = "¿Es esta la foto que quieres subir al mapa?"
+    if pending.get("as_document"):
+        await update.message.reply_document(pending["file_id"], caption=caption,
+                                            reply_markup=kb)
+    else:
+        await update.message.reply_photo(pending["file_id"], caption=caption,
+                                         reply_markup=kb)
     return CONFIRM_PHOTO
 
 
@@ -103,8 +123,11 @@ async def private_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entrada alternativa: el usuario envía/reenvía una foto por privado
     (útil para subir el histórico del grupo). Sin token ni aviso en grupo."""
     msg = update.effective_message
+    image = _extract_image(msg)
+    if not image:
+        return ConversationHandler.END
     context.user_data["draft"] = {
-        "file_id": msg.photo[-1].file_id,
+        **image,
         "user_name": update.effective_user.first_name,
         "token": None,
         "group_chat_id": None,
@@ -441,7 +464,10 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         tg_file = await context.bot.get_file(d["file_id"])
         image = bytes(await tg_file.download_as_bytearray())
-        media_id = await client.upload_media(image, caption=d["title"])
+        media_id = await client.upload_media(
+            image, filename=d.get("filename", "foto.jpg"),
+            mime=d.get("mime", "image/jpeg"), caption=d["title"],
+        )
         await client.create_post(
             title=d["title"], description=d["description"],
             lat=d["lat"], lon=d["lon"], media_id=media_id,
@@ -500,7 +526,8 @@ def main():
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start, filters.ChatType.PRIVATE),
-            MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, private_photo),
+            MessageHandler((filters.PHOTO | filters.Document.IMAGE)
+                           & filters.ChatType.PRIVATE, private_photo),
         ],
         states={
             CONFIRM_PHOTO: [CallbackQueryHandler(confirm_photo, pattern="^photo:")],
@@ -519,7 +546,8 @@ def main():
     )
     app.add_handler(conv)
     app.add_handler(CommandHandler("cuenta", cuenta, filters.ChatType.PRIVATE))
-    app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.GROUPS, group_photo))
+    app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE)
+                                   & filters.ChatType.GROUPS, group_photo))
 
     log.info("Bot arrancado")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
