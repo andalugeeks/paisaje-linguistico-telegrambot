@@ -18,7 +18,7 @@ from telegram import (
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, ContextTypes, filters,
+    ConversationHandler, ContextTypes, TypeHandler, filters,
 )
 
 import config
@@ -523,6 +523,17 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def debug_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log de diagnóstico: qué llega en cada update (metadatos, sin contenido)."""
+    m, chat = update.effective_message, update.effective_chat
+    if m and chat:
+        log.info(
+            "update: chat=%s(%s) foto=%s doc=%s texto=%s",
+            chat.type, chat.id, bool(m.photo),
+            m.document.mime_type if m.document else None, bool(m.text),
+        )
+
+
 async def post_init(app: Application):
     """Registra el menú de comandos que Telegram muestra al pulsar '/'."""
     await app.bot.set_my_commands([
@@ -565,6 +576,8 @@ def main():
         },
         fallbacks=[CommandHandler("cancelar", cancel), cancel_word],
     )
+    # group=-1: se ejecuta antes que el resto y no interfiere con ellos
+    app.add_handler(TypeHandler(Update, debug_update), group=-1)
     app.add_handler(conv)
     app.add_handler(CommandHandler("cuenta", cuenta, filters.ChatType.PRIVATE))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE)
