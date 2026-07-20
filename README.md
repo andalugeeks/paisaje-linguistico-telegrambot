@@ -1,5 +1,9 @@
 # Bot Paisaje Lingüístico Andaluz
 
+<p align="center">
+  <img src="bot_profilepicture.png" alt="Avatar del bot: un robot andaluz sobre el mapa de Andalucía con pins de localización" width="220">
+</p>
+
 Bot de Telegram que detecta fotos compartidas en el grupo y guía a la persona
 por privado para completar y subir su aportación a andaluh.ushahidi.io.
 
