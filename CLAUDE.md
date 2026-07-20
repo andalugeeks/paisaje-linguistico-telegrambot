@@ -24,7 +24,14 @@ metadatos, y crea el post en Ushahidi vía API.
    - `REVIEW`: resumen + Enviar/Cancelar. Al enviar: descarga la foto de
      Telegram → sube a Ushahidi media (v3) → crea post (v5) → confirma en
      privado y avisa en el grupo respondiendo a la foto original.
-3. `/cancelar` como fallback en cualquier punto.
+3. **Entrada alternativa (histórico)**: enviar/reenviar una foto directamente
+   al bot por privado arranca el mismo flujo desde LOCATION (sin token, sin
+   confirmación de foto y sin aviso en el grupo: `group_chat_id=None`). Al
+   terminar, el bot invita a mandar la siguiente foto, pensado para vaciar el
+   histórico del grupo en cadena. Ojo: si se reenvía un álbum entero, cada foto
+   intenta entrar como conversación nueva pero solo la primera arranca (las
+   demás se ignoran mientras hay conversación activa) → reenviar de una en una.
+4. `/cancelar` como fallback en cualquier punto.
 
 ## Arquitectura
 

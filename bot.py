@@ -91,6 +91,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CONFIRM_PHOTO
 
 
+async def private_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entrada alternativa: el usuario envía/reenvía una foto por privado
+    (útil para subir el histórico del grupo). Sin token ni aviso en grupo."""
+    msg = update.effective_message
+    context.user_data["draft"] = {
+        "file_id": msg.photo[-1].file_id,
+        "user_name": update.effective_user.first_name,
+        "token": None,
+        "group_chat_id": None,
+        "group_message_id": None,
+        "letrero": set(),
+        "discurso": set(),
+    }
+    kb = ReplyKeyboardMarkup(
+        [[KeyboardButton("📍 Compartir mi ubicación", request_location=True)]],
+        resize_keyboard=True, one_time_keyboard=True,
+    )
+    await msg.reply_text(
+        "📸 ¡Foto recibida! Vamos a subirla al mapa.\n\n"
+        "📍 *¿Dónde está el letrero?*\n\n"
+        "• Pulsa el botón para compartir tu ubicación, o\n"
+        "• pega un enlace de Google Maps, o\n"
+        "• escribe las coordenadas (ej. `37.1603, -4.2187`)",
+        parse_mode="Markdown", reply_markup=kb,
+    )
+    return LOCATION
+
+
 async def confirm_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -278,19 +306,22 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(
         "✅ ¡Aportación enviada! Quedará visible en el mapa en cuanto el "
         "equipo la revise. ¡Gracias por contribuir al Paisaje Lingüístico "
-        "Andaluz! 💚"
+        "Andaluz! 💚\n\n"
+        "Si quieres subir otra, mándame la siguiente foto cuando quieras. 📸"
     )
-    # Aviso en el grupo, respondiendo a la foto original
-    try:
-        await context.bot.send_message(
-            chat_id=d["group_chat_id"],
-            reply_to_message_id=d["group_message_id"],
-            text=f"✅ Aportación de {d['user_name']} completada y enviada al mapa 🗺️",
-        )
-    except Exception:
-        log.warning("No se pudo avisar en el grupo", exc_info=True)
+    # Aviso en el grupo solo si la aportación se originó allí
+    if d.get("group_chat_id"):
+        try:
+            await context.bot.send_message(
+                chat_id=d["group_chat_id"],
+                reply_to_message_id=d["group_message_id"],
+                text=f"✅ Aportación de {d['user_name']} completada y enviada al mapa 🗺️",
+            )
+        except Exception:
+            log.warning("No se pudo avisar en el grupo", exc_info=True)
 
-    context.bot_data.get("pending", {}).pop(d["token"], None)
+    if d.get("token"):
+        context.bot_data.get("pending", {}).pop(d["token"], None)
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -307,7 +338,10 @@ def main():
     app = Application.builder().token(config.TELEGRAM_TOKEN).build()
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start, filters.ChatType.PRIVATE)],
+        entry_points=[
+            CommandHandler("start", start, filters.ChatType.PRIVATE),
+            MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, private_photo),
+        ],
         states={
             CONFIRM_PHOTO: [CallbackQueryHandler(confirm_photo, pattern="^photo:")],
             LOCATION: [MessageHandler(
