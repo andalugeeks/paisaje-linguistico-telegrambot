@@ -8,7 +8,9 @@ Flujo:
 3. Sube la aportación a Ushahidi y confirma en el grupo.
 """
 import re
+import asyncio
 import logging
+from urllib.parse import parse_qs, unquote_plus, urlsplit
 from uuid import uuid4
 
 import httpx
@@ -31,7 +33,8 @@ log = logging.getLogger("paisajebot")
 
 # Estados de la conversación
 (CONFIRM_PHOTO, AUTH_CHOICE, AUTH_EMAIL, AUTH_PASSWORD,
- LOCATION, TRANSCRIPTION, DESCRIPTION, LETRERO, DISCURSO, REVIEW) = range(10)
+ LOCATION, LOCATION_CONFIRM, TRANSCRIPTION, DESCRIPTION,
+ LETRERO, DISCURSO, REVIEW) = range(11)
 
 # Cuenta por defecto (variables de entorno): identifica las subidas desde Telegram
 ushahidi = UshahidiClient()
@@ -181,6 +184,7 @@ async def _goto_location(chat) -> int:
         "📍 *¿Dónde está el letrero?*\n\n"
         "• Pulsa el botón para compartir tu ubicación, o\n"
         "• pega un enlace de Google Maps, o\n"
+        "• escribe el nombre del sitio (ej. `Bar La Esquinita, Coín`), o\n"
         "• escribe las coordenadas (ej. `37.1603, -4.2187`)\n\n"
         "_Para dejarlo en cualquier momento, escribe_ /cancelar",
         parse_mode="Markdown", reply_markup=kb,
@@ -322,48 +326,156 @@ CANCEL_RE = re.compile(r"^\s*/?cancelar\s*$", re.IGNORECASE)
 
 COORD_RE = re.compile(r"(-?\d{1,2}\.\d+)[,\s]+(-?\d{1,3}\.\d+)")
 GMAPS_RE = re.compile(r"[@!]3d(-?\d+\.\d+)!4d(-?\d+\.\d+)|@(-?\d+\.\d+),(-?\d+\.\d+)")
+URL_RE = re.compile(r"https?://\S+")
+
+# Nominatim (geocodificador de OpenStreetMap) pide identificarse en el User-Agent
+NOMINATIM_UA = "PaisajeLinguisticoAndaluzBot/1.0 (https://andaluh.ushahidi.io)"
 
 
-async def _resolve_short_link(url: str) -> str:
-    """Sigue la redirección de enlaces cortos maps.app.goo.gl."""
-    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as c:
+async def _resolve_link(url: str) -> str:
+    """Sigue las redirecciones de enlaces cortos (maps.app.goo.gl,
+    share.google...) y devuelve la URL final."""
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15,
+                                 headers={"User-Agent": "Mozilla/5.0"}) as c:
         r = await c.get(url)
         return str(r.url)
+
+
+def _place_query_from_url(url: str) -> str | None:
+    """Saca el nombre/dirección del sitio de una URL de Google.
+
+    Los enlaces compartidos desde el móvil ya no llevan coordenadas: los de
+    Maps llevan la dirección en la ruta (/maps/place/<dirección>) y los de
+    share.google acaban en una búsqueda con el nombre en el parámetro q.
+    """
+    parts = urlsplit(url)
+    qs = parse_qs(parts.query)
+    # Página anti-robots de Google: el destino real va en "continue"
+    if "continue" in qs:
+        return _place_query_from_url(qs["continue"][0])
+    m = re.search(r"/maps/place/([^/]+)", parts.path)
+    if m:
+        return unquote_plus(m.group(1))
+    for key in ("q", "query"):
+        value = (qs.get(key) or [""])[0].strip()
+        if value:
+            return value
+    return None
+
+
+async def _geocode(query: str) -> dict | None:
+    """Busca un lugar en Nominatim (OpenStreetMap) y devuelve el mejor
+    resultado, o None. Prueba variantes: la consulta entera, solo el nombre
+    (primer trozo) y solo la dirección (el resto)."""
+    candidates = [query]
+    trozos = [t.strip() for t in query.split(",") if t.strip()]
+    if len(trozos) > 1:
+        candidates += [trozos[0], ", ".join(trozos[1:])]
+    async with httpx.AsyncClient(timeout=15) as c:
+        for i, cand in enumerate(candidates):
+            if i:
+                await asyncio.sleep(1)  # límite de uso de Nominatim: 1 petición/s
+            r = await c.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={
+                    "format": "jsonv2", "limit": 1, "accept-language": "es",
+                    "countrycodes": "es",
+                    # sesgo (no límite) hacia Andalucía
+                    "viewbox": "-7.6,38.9,-1.5,35.9", "bounded": 0,
+                    "q": cand,
+                },
+                headers={"User-Agent": NOMINATIM_UA},
+            )
+            r.raise_for_status()
+            results = r.json()
+            if results:
+                return results[0]
+    return None
+
+
+async def _location_saved(message, draft, lat: float, lon: float) -> int:
+    draft["lat"], draft["lon"] = lat, lon
+    await message.reply_text(
+        f"📍 Ubicación registrada: `{lat:.5f}, {lon:.5f}`\n\n"
+        "✍️ *Transcripción*: escribe exactamente lo que pone en el letrero.",
+        parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
+    )
+    return TRANSCRIPTION
 
 
 async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     draft = context.user_data["draft"]
     lat = lon = None
+    place_query = None
 
     if update.message.location:
         lat = update.message.location.latitude
         lon = update.message.location.longitude
     else:
         text = update.message.text or ""
-        if "maps.app.goo.gl" in text or "goo.gl/maps" in text:
-            try:
-                text = await _resolve_short_link(text.strip())
-            except Exception:
-                pass
         m = GMAPS_RE.search(text) or COORD_RE.search(text)
+        url = URL_RE.search(text)
+        if not m and url:
+            final = url.group(0)
+            try:
+                final = await _resolve_link(final)
+            except Exception:
+                log.warning("No se pudo resolver el enlace %s", final)
+            m = GMAPS_RE.search(final)
+            if not m:
+                place_query = _place_query_from_url(final)
+                # A veces el parámetro q trae directamente coordenadas
+                if place_query:
+                    m = COORD_RE.search(place_query)
+        elif not m and text.strip():
+            # Sin enlace ni coordenadas: probamos el texto como nombre del sitio
+            place_query = text.strip()
         if m:
             groups = [g for g in m.groups() if g is not None]
             lat, lon = float(groups[0]), float(groups[1])
 
+    # Sin coordenadas pero con un nombre/dirección: geocodificar y confirmar
+    if lat is None and place_query:
+        place = None
+        try:
+            place = await _geocode(place_query)
+        except Exception:
+            log.warning("Fallo geocodificando %r", place_query, exc_info=True)
+        if place:
+            plat, plon = float(place["lat"]), float(place["lon"])
+            context.user_data["loc_candidate"] = (plat, plon)
+            await update.message.reply_location(latitude=plat, longitude=plon)
+            await update.message.reply_text(
+                f"🔎 He encontrado esto:\n{place['display_name']}\n\n"
+                "¿Es ahí donde está el letrero?",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ Sí, es ahí", callback_data="loc:yes"),
+                    InlineKeyboardButton("❌ No", callback_data="loc:no"),
+                ]]),
+            )
+            return LOCATION_CONFIRM
+
     if lat is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
         await update.message.reply_text(
             "No he podido entender esa ubicación 😅. Prueba a compartirla con "
-            "el botón, o pega un enlace de Google Maps."
+            "el botón, pega un enlace de Google Maps o escribe el nombre del "
+            "sitio y su municipio (ej. `Bar La Esquinita, Coín`).",
+            parse_mode="Markdown",
         )
         return LOCATION
 
-    draft["lat"], draft["lon"] = lat, lon
-    await update.message.reply_text(
-        f"📍 Ubicación registrada: `{lat:.5f}, {lon:.5f}`\n\n"
-        "✍️ *Transcripción*: escribe exactamente lo que pone en el letrero.",
-        parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
-    )
-    return TRANSCRIPTION
+    return await _location_saved(update.message, draft, lat, lon)
+
+
+async def location_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Confirmación del sitio encontrado por nombre/dirección."""
+    q = update.callback_query
+    await q.answer()
+    lat, lon = context.user_data.pop("loc_candidate", (None, None))
+    if q.data != "loc:yes" or lat is None:
+        await q.message.reply_text("Vale, probemos de otra manera 👇")
+        return await _goto_location(update.effective_chat)
+    return await _location_saved(q.message, context.user_data["draft"], lat, lon)
 
 
 async def transcription(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -573,6 +685,14 @@ def main():
                             MessageHandler(filters.TEXT & ~filters.COMMAND, auth_password)],
             LOCATION: [cancel_word, MessageHandler(
                 (filters.LOCATION | filters.TEXT) & ~filters.COMMAND, location)],
+            LOCATION_CONFIRM: [
+                CallbackQueryHandler(location_confirm, pattern="^loc:"),
+                cancel_word,
+                # Si en vez de responder a los botones manda otra ubicación,
+                # enlace o texto, lo tratamos como un nuevo intento
+                MessageHandler((filters.LOCATION | filters.TEXT)
+                               & ~filters.COMMAND, location),
+            ],
             TRANSCRIPTION: [cancel_word,
                             MessageHandler(filters.TEXT & ~filters.COMMAND, transcription)],
             DESCRIPTION: [cancel_word,

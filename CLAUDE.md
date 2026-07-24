@@ -28,8 +28,16 @@ metadatos, y crea el post en Ushahidi vía API.
      (`disable_registration: enabled` en /api/v3/config/features): la opción
      (c) fallará hasta activarlo en el panel de Ushahidi.
    - `LOCATION`: acepta ubicación compartida de Telegram, enlaces de Google
-     Maps (resuelve cortos maps.app.goo.gl siguiendo la redirección) o
-     coordenadas escritas "lat, lon".
+     Maps, el nombre/dirección del sitio escrito, o coordenadas "lat, lon".
+     ⚠️ Los enlaces compartidos desde el móvil YA NO llevan coordenadas:
+     `maps.app.goo.gl` redirige a `/maps/place/<dirección>` y `share.google`
+     a una búsqueda de Google con `q=<nombre>` (y Google bloquea con captcha
+     el scraping desde servidores). Por eso el bot extrae el nombre/dirección
+     de la URL final y lo geocodifica con Nominatim (OSM, sin API key,
+     sesgo hacia Andalucía, probando variantes: consulta entera → nombre →
+     dirección). Como geocodificar por nombre puede fallar, el bot enseña el
+     pin en el mapa y pide confirmación (estado `LOCATION_CONFIRM`) antes de
+     seguir. Verificado (jul-2026) con enlaces reales del grupo.
    - `TRANSCRIPTION`: texto libre, máx. 150 chars (es el `title` del post).
    - `DESCRIPTION`: texto libre (es el `content` del post).
    - `LETRERO` y `DISCURSO`: teclados inline multi-selección con toggle ✅.
@@ -105,8 +113,6 @@ Compila; NO se ha probado aún contra Telegram ni Ushahidi reales.
   su propio botón, lo cual ya funciona pero puede ser ruidoso: valorar agrupar).
 - Si el usuario marca "Otro" en letrero/discurso, pedir texto que lo especifique
   (idea de diseño comentada, no implementada).
-- Geocodificación de direcciones escritas (Nominatim) como cuarta vía de
-  localización.
 - Despliegue 24/7: Docker Compose YA LISTO (Dockerfile + docker-compose.yml,
   `env_file: .env`, `restart: unless-stopped`); falta solo elegir dónde
   hospedarlo (VPS / Railway / Fly.io).
